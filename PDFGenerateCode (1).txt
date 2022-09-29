@@ -1,0 +1,94 @@
+using iText.Html2pdf;  
+
+
+
+
+  private async Task<string> GenerateInvoice(CreateEventInvoiceResponseDTO eventInvoice)
+        {
+
+            string body = string.Empty;
+            using (StreamReader reader = File.OpenText(@"" + EmailTemplateURl + "InvoiceTemplate.html"))
+            {
+                body = reader.ReadToEnd();
+
+                body = body.Replace("AgencyLogo", eventInvoice.AgencyLogo);
+                body = body.Replace("{AgencyLogo}", eventInvoice.AgencyLogo);
+                body = body.Replace("{AgencyName}", eventInvoice.AgencyName);
+                body = body.Replace("{AgencyAddress}", eventInvoice.AgencyAddress);
+                body = body.Replace("{VenueName}", eventInvoice.VenueName);
+                body = body.Replace("{ManagerName}", eventInvoice.ManagerName);
+                body = body.Replace("{VenueAddress}", eventInvoice.VenueAddress);
+                body = body.Replace("{VenueEmail}", eventInvoice.VenueEmail);
+                body = body.Replace("{InvoiceNumber}", eventInvoice.Code.ToString());
+                body = body.Replace("{InvoiceDate}", eventInvoice.EventDate.ToString());
+                body = body.Replace("{PaymentDueDate}", eventInvoice.EventDate.AddDays(14).ToString());
+                body = body.Replace("{AmmountDue}", eventInvoice.InvoiceAmount.ToString());
+
+                //TableData
+                body = body.Replace("{Service}", "DJ Services -" + eventInvoice.WeekDay);
+                body = body.Replace("{Qunatity}", "1");
+                body = body.Replace("{Price}", eventInvoice.InvoiceAmount.ToString());
+                body = body.Replace("{Ammount}", eventInvoice.InvoiceAmount.ToString());
+
+                //last Total
+                body = body.Replace("{GrandTotal}", eventInvoice.InvoiceAmount.ToString());
+                body = body.Replace("{AmmountDue}", eventInvoice.InvoiceAmount.ToString());
+            }
+
+            //ConverterProperties properties = new ConverterProperties();
+            HtmlConverter.ConvertToPdf(body, new FileStream("./invoice.pdf", FileMode.Create, FileAccess.ReadWrite));
+
+            string[] fileEntries = Directory.GetFiles(@"./", "invoice.pdf");
+
+            string url = await GetInvoiceUrl(fileEntries[0]);
+
+            File.Delete(fileEntries[0]);
+
+            return url;
+        }
+ 
+ 
+ 
+ ============================================================================================================================================
+ 
+ private async Task<string> GetInvoiceUrl(string fileEntries)
+        {
+            using (var stream = File.OpenRead(fileEntries))
+            {
+                var file = new FormFile(stream, 0, stream.Length, null, Path.GetFileName(stream.Name))
+                {
+                    Headers = new HeaderDictionary(),
+                    ContentType = "application/pdf"
+                };
+
+                CloudStorageAccount storageacc = CloudStorageAccount.Parse(AzureCloudStorageConnection);
+                CloudBlobClient blobClient = storageacc.CreateCloudBlobClient();
+                CloudBlobContainer container = blobClient.GetContainerReference(AzureCloudStorageContainer);
+
+                if (await container.CreateIfNotExistsAsync())
+                {
+                    // Set the permissions so the blobs are public.
+                    BlobContainerPermissions permissions = new BlobContainerPermissions
+                    {
+                        PublicAccess = BlobContainerPublicAccessType.Blob
+                    };
+                    await container.SetPermissionsAsync(permissions);
+                }
+
+                CloudBlockBlob blockBlob = container.GetBlockBlobReference(file.FileName + "" + DateTime.UtcNow.ToString());
+                blockBlob.Properties.ContentType = file.ContentType;
+
+                //saving Image FileName with Url to Db
+                var uploadContext = DataContext.Set<Domain.Entities.Uploads>();
+                Uploads model = new Uploads();
+                model.FileName = blockBlob.Name.ToString();
+                model.Url = blockBlob.Uri.AbsoluteUri.ToString();
+
+                uploadContext.Add(model);
+                await DataContext.SaveChangesAsync(CancellationToken.None);
+                DataContext.CommitTransaction();
+
+                await blockBlob.UploadFromStreamAsync(file.OpenReadStream());
+                return blockBlob.StorageUri.PrimaryUri.AbsoluteUri;
+            }
+        }
