@@ -1,0 +1,62 @@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ C# Code @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                double latitude = request.Model.Lat ?? 30.7422977;
+
+                double longitude = request.Model.Long ?? 76.8173686; 
+
+                int searchWithin = request.Model.Radius <= 0 ?  5 : request.Model.Radius;
+
+             
+
+                var loc = (from l in DataContext.Set<Domain.Entities.User>()
+                           let temp = Math.Sin(latitude * (Math.PI / 180.0)) *
+                                         Math.Sin(l.Latitude * (Math.PI / 180.0)) + Math.Cos(latitude * (Math.PI / 180.0)) *
+                                         Math.Cos(l.Latitude * (Math.PI / 180.0)) * Math.Cos((longitude - l.Longitude) * (Math.PI / 180.0))
+
+                           let calMiles = Math.Acos(temp ) * ( 180.0 / Math.PI)
+
+                           let calMiless = calMiles * 60 * 1.1515 * 1.609344
+
+                           where (calMiless <= searchWithin)
+                           orderby calMiless
+
+                           select new FilterByLocationResponseDTO
+                           {
+                               Name = l.Name,
+                               Address = l.Address,
+                               UserName = l.UserName,
+                               Email = l.Email,
+                               UserType = l.UserType,
+                               UserStatus = l.UserStatus,
+                               SportId = l.SportId,
+                               Rating = l.Rating,
+                               Latitude = calMiless,                             
+
+                           }).ToList();
+
+
+
+
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  PostGreySQL Quesry @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+	
+SELECT * FROM (
+    SELECT *, 
+        (
+            (
+                (
+                    acos(
+                        sin( 30.7422977 * (pi() / 180))
+                        *
+                        sin( "Latitude" * (pi() / 180)) + cos( 30.7422977 * (pi() /180 ))
+                        *
+                        cos( "Latitude" * (pi() / 180)) * cos(( 76.8173686 - "Longitude") * (pi()/180)))
+                ) *( 180/pi())
+            ) * 60 * 1.1515 * 1.609344
+        )
+    as distance FROM dbo."User"
+) distance
+WHERE distance <= 5
+LIMIT 15;
